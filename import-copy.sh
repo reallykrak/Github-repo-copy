@@ -43,6 +43,9 @@ if [[ -z "$TARGET_REPO" ]]; then
   exit 1
 fi
 
+# YENİ EKLENDİ: Hedef repo açıklaması
+read -p "Hedef repo için açıklama (opsiyonel, boş bırakılabilir): " TARGET_DESC
+
 # Hedef owner (token ile oturum açan kullanıcı)
 echo "Hedef repo hesabı (otomatik çekiliyor from token)..."
 API_USER=$(curl -sS -H "Authorization: token $GHTOKEN" https://api.github.com/user)
@@ -63,15 +66,18 @@ trap cleanup EXIT
 
 # 1) Kaynak repo erişilebilir mi?
 echo "Kaynak repo kontrol ediliyor: $SRC_REPO"
-if ! curl -sSf "https://api.github.com/repos/$SRC_REPO" >/dev/null; then
+# DÜZELTME: 403 Rate Limit hatasını önlemek için token ile kontrol et
+if ! curl -sSf -H "Authorization: token $GHTOKEN" "https://api.github.com/repos/$SRC_REPO" >/dev/null; then
   echo "Kaynak repo bulunamadı veya erişilemiyor: $SRC_REPO"
+  echo "Token'ınızın bu repoya erişimi olduğundan veya reponun public olduğundan emin olun."
   exit 1
 fi
 
 # 2) Hedef repo oluştur (MIT lisans ile)
 echo "Hedef repo oluşturuluyor: $USERNAME/$TARGET_REPO  (MIT lisans eklenecek)"
-CREATE_PAYLOAD=$(jq -n --arg name "$TARGET_REPO" --argjson priv false \
-  '{name:$name, private:$priv, auto_init:false, license_template:"mit"}')
+# DÜZELTME: Açıklama (description) eklendi
+CREATE_PAYLOAD=$(jq -n --arg name "$TARGET_REPO" --arg desc "$TARGET_DESC" --argjson priv false \
+  '{name:$name, description:$desc, private:$priv, auto_init:false, license_template:"mit"}')
 CREATE_RESP=$(curl -sS -H "Authorization: token $GHTOKEN" \
   -H "Accept: application/vnd.github.v3+json" \
   -d "$CREATE_PAYLOAD" https://api.github.com/user/repos)
@@ -90,7 +96,8 @@ fi
 # 3) Kaynakun shallow clone'u
 echo "Kaynak repo klonlanıyor (snapshot)…"
 cd "$TMPDIR"
-git clone --depth 1 "https://github.com/$SRC_REPO.git" src || { echo "Clone başarısız"; exit 1; }
+# Token'ı burada kullanmak özel (private) repoları da klonlamayı sağlar
+git clone --depth 1 "https://$GHTOKEN@github.com/$SRC_REPO.git" src || { echo "Clone başarısız"; exit 1; }
 
 # 4) Hedef repo'yu klonla (içinde LICENSE olacak)
 echo "Hedef repo klonlanıyor (içindeki MIT lisans dahil)..."
