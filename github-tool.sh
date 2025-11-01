@@ -418,7 +418,7 @@ main_menu() {
     echo -e " ${C_YELLOW}2.${C_RESET} Toplu Repo Star'la"
     echo -e " ${C_YELLOW}3.${C_RESET} Toplu Repo Un-Star'la"
 _follow
-        ;;
+        
       q|Q)
         echo -e "${C_CYAN}Görüşmek üzere!${C_RESET}"
         exit 0
