@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # github-tool.sh -- GitHub için çok amaçlı araç menüsü
 # Özellikler: Repo Kopyalama, Toplu Star/Unstar, Toplu Takip
+# GÜNCELLEME: URL normalleştirmesi eklendi (owner/repo formatını otomatik algılama)
 set -euo pipefail
 
 # --- Renk Kodları ---
@@ -108,7 +109,6 @@ func_repo_copy() {
   
   local GHTOKEN SRC_INPUT TARGET_REPO TARGET_DESC TOPICS IS_PRIVATE="n"
   
-  # Bu özellik için tek bir token soruyoruz, çünkü repo *bu* hesapta oluşturulacak
   echo -n "Repo oluşturma yetkisine sahip GitHub Token'ı girin (gözükmeyecek): "
   read -s GHTOKEN
   echo
@@ -116,7 +116,7 @@ func_repo_copy() {
     echo -e "${C_RED}Token gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
   fi
 
-  read -p "Kaynak repo (owner/repo): " SRC_INPUT
+  read -p "Kaynak repo (owner/repo veya URL): " SRC_INPUT
   read -p "Hedef repoda olması istenen isim: " TARGET_REPO
   if [[ -z "$SRC_INPUT" || -z "$TARGET_REPO" ]]; then
     echo -e "${C_RED}Kaynak ve Hedef repo ismi gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
@@ -126,7 +126,7 @@ func_repo_copy() {
   IS_PRIVATE=${IS_PRIVATE_INPUT:-n}
   read -p "Repo konuları (virgülle ayırın, opsiyonel): " TOPICS
 
-  # normalize: owner/repo
+  # URL normalleştirme
   local SRC_REPO
   if [[ "$SRC_INPUT" =~ github.com/ ]]; then
     SRC_REPO=$(echo "$SRC_INPUT" | sed -E 's#https?://(www\.)?github.com/##; s#\.git$##; s#/$##')
@@ -145,7 +145,6 @@ func_repo_copy() {
 
   local TMPDIR
   TMPDIR="$(mktemp -d /data/data/com.termux/files/home/tmp-import-XXXX)"
-  # Bu fonksiyondan çıkıldığında temizlik yap
   trap 'echo -e "${C_YELLOW}Temizlik yapılıyor...${C_RESET}"; rm -rf "$TMPDIR"; trap - EXIT' EXIT
 
   echo "Kaynak repo kontrol ediliyor: $SRC_REPO"
@@ -221,7 +220,6 @@ func_repo_copy() {
     echo -e "${C_GREEN}Dosyalar pushlandı -> https://github.com/$USERNAME/$TARGET_REPO${C_RESET}"
   fi
   
-  # Temizlik trap'ini kaldır
   trap - EXIT
   rm -rf "$TMPDIR"
   echo -e "${C_GREEN}Repo Kopyalama İşlemi Tamamlandı.${C_RESET}"
@@ -240,15 +238,21 @@ func_repo_star() {
   fi
 
   local total_tokens=${#TOKENS[@]}
-  read -p "Star atılacak hedef repo (örn: owner/repo): " TARGET_REPO
+  read -p "Star atılacak hedef repo (örn: owner/repo veya URL): " TARGET_REPO
   if [[ -z "$TARGET_REPO" ]]; then
     echo -e "${C_RED}Hedef repo gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
+  fi
+  
+  # YENİ EKLENDİ: URL Normalleştirme
+  if [[ "$TARGET_REPO" =~ github.com/ ]]; then
+    echo -e "${C_YELLOW} -> URL algılandı, 'owner/repo' formatına çevriliyor...${C_RESET}"
+    TARGET_REPO=$(echo "$TARGET_REPO" | sed -E 's#https?://(www\.)?github.com/##; s#\.git$##; s#/$##')
+    echo -e "${C_CYAN} -> Düzeltilmiş hedef: $TARGET_REPO${C_RESET}"
   fi
   
   read -p "Kaç hesaptan star atılsın? (Toplam: $total_tokens) [Tümü]: " COUNT_INPUT
   local count_to_star=${COUNT_INPUT:-$total_tokens}
 
-  # Girdi sayısal mı ve toplam token sayısından az mı?
   if ! [[ "$count_to_star" =~ ^[0-9]+$ ]] || [[ "$count_to_star" -gt "$total_tokens" ]]; then
     echo -e "${C_RED}Geçersiz sayı. $total_tokens veya daha az olmalı.${C_RESET}"
     count_to_star=$total_tokens
@@ -270,7 +274,6 @@ func_repo_star() {
       ((fail_count++))
     fi
     
-    # Sonuncusu hariç 5 saniye bekle
     if [[ $i -lt $((count_to_star - 1)) ]]; then
       echo "5 saniye bekleniyor..."
       sleep 5
@@ -294,9 +297,16 @@ func_repo_unstar() {
   fi
 
   local total_tokens=${#TOKENS[@]}
-  read -p "Un-star yapılacak hedef repo (örn: owner/repo): " TARGET_REPO
+  read -p "Un-star yapılacak hedef repo (örn: owner/repo veya URL): " TARGET_REPO
   if [[ -z "$TARGET_REPO" ]]; then
     echo -e "${C_RED}Hedef repo gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
+  fi
+  
+  # YENİ EKLENDİ: URL Normalleştirme
+  if [[ "$TARGET_REPO" =~ github.com/ ]]; then
+    echo -e "${C_YELLOW} -> URL algılandı, 'owner/repo' formatına çevriliyor...${C_RESET}"
+    TARGET_REPO=$(echo "$TARGET_REPO" | sed -E 's#https?://(www\.)?github.com/##; s#\.git$##; s#/$##')
+    echo -e "${C_CYAN} -> Düzeltilmiş hedef: $TARGET_REPO${C_RESET}"
   fi
   
   read -p "Kaç hesaptan un-star yapılsın? (Toplam: $total_tokens) [Tümü]: " COUNT_INPUT
@@ -345,9 +355,17 @@ func_user_follow() {
   fi
 
   local total_tokens=${#TOKENS[@]}
-  read -p "Takip edilecek kullanıcı adı (örn: torvalds): " TARGET_USER
+  read -p "Takip edilecek kullanıcı adı (örn: torvalds veya URL): " TARGET_USER
   if [[ -z "$TARGET_USER" ]]; then
     echo -e "${C_RED}Kullanıcı adı gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
+  fi
+  
+  # YENİ EKLENDİ: URL Normalleştirme (Kullanıcı adı için)
+  if [[ "$TARGET_USER" =~ github.com/ ]]; then
+    echo -e "${C_YELLOW} -> URL algılandı, 'kullanıcı' formatına çevriliyor...${C_RESET}"
+    # Sadece /'dan sonraki ilk kısmı al (kullanıcı adı)
+    TARGET_USER=$(echo "$TARGET_USER" | sed -E 's#https?://(www\.)?github.com/##' | cut -d'/' -f1)
+    echo -e "${C_CYAN} -> Düzeltilmiş hedef: $TARGET_USER${C_RESET}"
   fi
   
   read -p "Kaç hesaptan takip edilsin? (Toplam: $total_tokens) [Tümü]: " COUNT_INPUT
@@ -398,25 +416,8 @@ main_menu() {
     echo
     echo -e " ${C_YELLOW}1.${C_RESET} Repo Kopyala (İçe Aktar)"
     echo -e " ${C_YELLOW}2.${C_RESET} Toplu Repo Star'la"
-    echo -e " ${C_YELLOW}3.${C_RESET} Toplu Repo Un-Star'la (Ek Özellik)"
-    echo -e " ${C_YELLOW}4.${C_RESET} Toplu Kullanıcı Takip Et (Ek Özellik)"
-    echo
-    echo -e " ${C_RED}q.${C_RESET} Çıkış"
-    echo
-    read -p "Seçiminiz [1-4, q]: " CHOICE
-
-    case $CHOICE in
-      1)
-        func_repo_copy
-        ;;
-      2)
-        func_repo_star
-        ;;
-      3)
-        func_repo_unstar
-        ;;
-      4)
-        func_user_follow
+    echo -e " ${C_YELLOW}3.${C_RESET} Toplu Repo Un-Star'la"
+_follow
         ;;
       q|Q)
         echo -e "${C_CYAN}Görüşmek üzere!${C_RESET}"
