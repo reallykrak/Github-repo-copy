@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # github-tool.sh -- GitHub için çok amaçlı araç menüsü
-# Özellikler: Repo Kopyalama, Toplu Star/Unstar, Toplu Takip
-# GÜNCELLEME: URL normalleştirmesi eklendi (owner/repo formatını otomatik algılama)
-# GÜNCELLEME 2: Main_menu'deki syntax hatası düzeltildi.
-set -euo pipefail
+# ÖZELLİKLER: Repo Kopyalama, Toplu Star/Unstar, Toplu Takip/Unfollow, Toplu Watch
+# GÜNCELLEME 4: 'set -e' kaldırıldı. Script'in tek bir işlemden sonra 'otomatik bitme' sorunu düzeltildi.
+# 
+# set -euo pipefail # <--- SORUN ÇIKARAN SATIR BUYDU
+set -o pipefail     # <--- DÜZELTİLMİŞ HALİ. Sadece pipefail kalsın. -e ve -u kaldırıldı.
 
 # --- Renk Kodları ---
 C_RESET='\033[0m'
@@ -53,7 +54,7 @@ load_tokens() {
 
 # --- API Çağrı Fonksiyonları (Rate Limit için 5sn bekleme ile) ---
 
-# GitHub API'ye PUT isteği (Star, Follow)
+# GitHub API'ye PUT isteği (Star, Follow, Watch)
 api_put() {
   local token=$1
   local endpoint=$2
@@ -61,7 +62,6 @@ api_put() {
 
   echo -en "${C_CYAN} -> [Hesap ${user_index}]${C_RESET} ${endpoint} için istek gönderiliyor... "
   
-  # -H "Content-Length: 0" boş PUT isteği için gereklidir
   HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" \
     -X PUT \
     -H "Authorization: token $token" \
@@ -69,7 +69,7 @@ api_put() {
     -H "Content-Length: 0" \
     "https://api.github.com/$endpoint")
 
-  if [[ "$HTTP_STATUS" -eq 204 ]]; then
+  if [[ "$HTTP_STATUS" -eq 204 || "$HTTP_STATUS" -eq 200 ]]; then
     echo -e "${C_GREEN}Başarılı (Kod: $HTTP_STATUS)${C_RESET}"
     return 0
   else
@@ -145,7 +145,14 @@ func_repo_copy() {
   echo "Token sahibi: ${C_GREEN}$USERNAME${C_RESET}"
 
   local TMPDIR
-  TMPDIR="$(mktemp -d /data/data/com.termux/files/home/tmp-import-XXXX)"
+  # Termux için /data/data/com.termux/files/home/
+  # Diğer Linux sistemleri için /tmp
+  if [[ -d "/data/data/com.termux/files/home" ]]; then
+    TMPDIR="$(mktemp -d /data/data/com.termux/files/home/tmp-import-XXXX)"
+  else
+    TMPDIR="$(mktemp -d /tmp/tmp-import-XXXX)"
+  fi
+  
   trap 'echo -e "${C_YELLOW}Temizlik yapılıyor...${C_RESET}"; rm -rf "$TMPDIR"; trap - EXIT' EXIT
 
   echo "Kaynak repo kontrol ediliyor: $SRC_REPO"
@@ -350,6 +357,7 @@ func_repo_unstar() {
 # ===============================================
 func_user_follow() {
   echo -e "${C_WHITE}--- 4. Toplu Kullanıcı Takip Etme Aracı ---${C_RESET}"
+  echo -e "${C_YELLOW}Uyarı: Bu özellik token.txt'deki token'lar için 'user:follow' izni gerektirir.${C_RESET}"
   
   if ! load_tokens; then
     sleep 2; return
@@ -364,7 +372,6 @@ func_user_follow() {
   # URL Normalleştirme (Kullanıcı adı için)
   if [[ "$TARGET_USER" =~ github.com/ ]]; then
     echo -e "${C_YELLOW} -> URL algılandı, 'kullanıcı' formatına çevriliyor...${C_RESET}"
-    # Sadece /'dan sonraki ilk kısmı al (kullanıcı adı)
     TARGET_USER=$(echo "$TARGET_USER" | sed -E 's#https?://(www\.)?github.com/##' | cut -d'/' -f1)
     echo -e "${C_CYAN} -> Düzeltilmiş hedef: $TARGET_USER${C_RESET}"
   fi
@@ -405,7 +412,128 @@ func_user_follow() {
 }
 
 # ===============================================
-# === ANA MENÜ (DÜZELTİLDİ) ===
+# === YENİ ÖZELLİK 5: TOPLU TAKİPTEN ÇIKMA ===
+# ===============================================
+func_user_unfollow() {
+  echo -e "${C_WHITE}--- 5. Toplu Kullanıcı Takipten Çıkma Aracı ---${C_RESET}"
+  echo -e "${C_YELLOW}Uyarı: Bu özellik token.txt'deki token'lar için 'user:follow' izni gerektirir.${C_RESET}"
+  
+  if ! load_tokens; then
+    sleep 2; return
+  fi
+
+  local total_tokens=${#TOKENS[@]}
+  read -p "Takipten çıkılacak kullanıcı adı (örn: torvalds veya URL): " TARGET_USER
+  if [[ -z "$TARGET_USER" ]]; then
+    echo -e "${C_RED}Kullanıcı adı gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
+  fi
+  
+  # URL Normalleştirme
+  if [[ "$TARGET_USER" =~ github.com/ ]]; then
+    echo -e "${C_YELLOW} -> URL algılandı, 'kullanıcı' formatına çevriliyor...${C_RESET}"
+    TARGET_USER=$(echo "$TARGET_USER" | sed -E 's#https?://(www\.)?github.com/##' | cut -d'/' -f1)
+    echo -e "${C_CYAN} -> Düzeltilmiş hedef: $TARGET_USER${C_RESET}"
+  fi
+  
+  read -p "Kaç hesaptan takipten çıkılsın? (Toplam: $total_tokens) [Tümü]: " COUNT_INPUT
+  local count_to_unfollow=${COUNT_INPUT:-$total_tokens}
+
+  if ! [[ "$count_to_unfollow" =~ ^[0-9]+$ ]] || [[ "$count_to_unfollow" -gt "$total_tokens" ]]; then
+    echo -e "${C_RED}Geçersiz sayı. $total_tokens veya daha az olmalı.${C_RESET}"
+    count_to_unfollow=$total_tokens
+    echo -e "${C_YELLOW}Tüm hesaplar ($total_tokens) kullanılacak.${C_RESET}"
+  fi
+
+  echo -e "${C_YELLOW}Başlatılıyor: $TARGET_USER kullanıcısı $count_to_unfollow hesaptan takipten çıkılacak...${C_RESET}"
+  
+  local success_count=0
+  local fail_count=0
+  
+  for (( i=0; i<$count_to_unfollow; i++ )); do
+    local token="${TOKENS[$i]}"
+    local user_index=$((i+1))
+    
+    if api_delete "$token" "user/following/$TARGET_USER" "$user_index"; then
+      ((success_count++))
+    else
+      ((fail_count++))
+    fi
+    
+    if [[ $i -lt $((count_to_unfollow - 1)) ]]; then
+      echo "5 saniye bekleniyor..."
+      sleep 5
+    fi
+  done
+
+  echo -e "${C_GREEN}İşlem Tamamlandı.${C_RESET}"
+  echo -e "Başarılı: ${C_GREEN}$success_count${C_RESET} | Başarısız: ${C_RED}$fail_count${C_RESET}"
+  read -p "Devam etmek için Enter'a basın..."
+}
+
+# ===============================================
+# === YENİ ÖZELLİK 6: TOPLU REPO İZLEME (WATCH) ===
+# ===============================================
+func_repo_watch() {
+  echo -e "${C_WHITE}--- 6. Toplu Repo İzleme (Watch) Aracı ---${C_RESET}"
+  echo -e "${C_YELLOW}Uyarı: Bu özellik 'repo' veya 'notifications' izni gerektirir.${C_RESET}"
+  
+  if ! load_tokens; then
+    sleep 2; return
+  fi
+
+  local total_tokens=${#TOKENS[@]}
+  read -p "İzlenecek (Watch) hedef repo (örn: owner/repo veya URL): " TARGET_REPO
+  if [[ -z "$TARGET_REPO" ]]; then
+    echo -e "${C_RED}Hedef repo gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
+  fi
+  
+  # URL Normalleştirme
+  if [[ "$TARGET_REPO" =~ github.com/ ]]; then
+    echo -e "${C_YELLOW} -> URL algılandı, 'owner/repo' formatına çevriliyor...${C_RESET}"
+    TARGET_REPO=$(echo "$TARGET_REPO" | sed -E 's#https?://(www\.)?github.com/##; s#\.git$##; s#/$##')
+    echo -e "${C_CYAN} -> Düzeltilmiş hedef: $TARGET_REPO${C_RESET}"
+  fi
+  
+  read -p "Kaç hesaptan izlensin? (Toplam: $total_tokens) [Tümü]: " COUNT_INPUT
+  local count_to_watch=${COUNT_INPUT:-$total_tokens}
+
+  if ! [[ "$count_to_watch" =~ ^[0-9]+$ ]] || [[ "$count_to_watch" -gt "$total_tokens" ]]; then
+    echo -e "${C_RED}Geçersiz sayı. $total_tokens veya daha az olmalı.${C_RESET}"
+    count_to_watch=$total_tokens
+    echo -e "${C_YELLOW}Tüm hesaplar ($total_tokens) kullanılacak.${C_RESET}"
+  fi
+
+  echo -e "${C_YELLOW}Başlatılıyor: $TARGET_REPO repo'su $count_to_watch hesap ile izlenecek...${C_RESET}"
+  
+  local success_count=0
+  local fail_count=0
+  
+  local API_ENDPOINT="repos/$TARGET_REPO/subscription"
+  
+  for (( i=0; i<$count_to_watch; i++ )); do
+    local token="${TOKENS[$i]}"
+    local user_index=$((i+1))
+    
+    if api_put "$token" "$API_ENDPOINT" "$user_index"; then
+      ((success_count++))
+    else
+      ((fail_count++))
+    fi
+    
+    if [[ $i -lt $((count_to_watch - 1)) ]]; then
+      echo "5 saniye bekleniyor..."
+      sleep 5
+    fi
+  done
+
+  echo -e "${C_GREEN}İşlem Tamamlandı.${C_RESET}"
+  echo -e "Başarılı: ${C_GREEN}$success_count${C_RESET} | Başarısız: ${C_RED}$fail_count${C_RESET}"
+  read -p "Devam etmek için Enter'a basın..."
+}
+
+
+# ===============================================
+# === ANA MENÜ (GÜNCELLENDİ) ===
 # ===============================================
 main_menu() {
   while true; do
@@ -418,11 +546,13 @@ main_menu() {
     echo -e " ${C_YELLOW}1.${C_RESET} Repo Kopyala (İçe Aktar)"
     echo -e " ${C_YELLOW}2.${C_RESET} Toplu Repo Star'la"
     echo -e " ${C_YELLOW}3.${C_RESET} Toplu Repo Un-Star'la"
-    echo -e " ${C_YELLOW}4.${C_RESET} Toplu Kullanıcı Takip Et (Ek Özellik)"
+    echo -e " ${C_YELLOW}4.${C_RESET} Toplu Kullanıcı Takip Et"
+    echo -e " ${C_YELLOW}5.${C_RESET} Toplu Kullanıcı Takipten Çık ${C_GREEN}(Yeni)${C_RESET}"
+    echo -e " ${C_YELLOW}6.${C_RESET} Toplu Repo İzle (Watch) ${C_GREEN}(Yeni)${C_RESET}"
     echo
     echo -e " ${C_RED}q.${C_RESET} Çıkış"
     echo
-    read -p "Seçiminiz [1-4, q]: " CHOICE
+    read -p "Seçiminiz [1-6, q]: " CHOICE
 
     case $CHOICE in
       1)
@@ -436,6 +566,12 @@ main_menu() {
         ;;
       4)
         func_user_follow
+        ;;
+      5)
+        func_user_unfollow
+        ;;
+      6)
+        func_repo_watch
         ;;
       q|Q)
         echo -e "${C_CYAN}Görüşmek üzere!${C_RESET}"
