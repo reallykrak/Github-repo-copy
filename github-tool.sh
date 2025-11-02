@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # github-tool.sh -- GitHub için çok amaçlı araç menüsü
 # ÖZELLİKLER: Repo Kopyalama, Toplu Star/Unstar, Toplu Takip/Unfollow, Toplu Watch
-# GÜNCELLEME 4: 'set -e' kaldırıldı. Script'in tek bir işlemden sonra 'otomatik bitme' sorunu düzeltildi.
-# 
-# set -euo pipefail # <--- SORUN ÇIKARAN SATIR BUYDU
-set -o pipefail     # <--- DÜZELTİLMİŞ HALİ. Sadece pipefail kalsın. -e ve -u kaldırıldı.
+# GÜNCELLEME 5: Script'in 'otomatik bitme' sorununu çözmek için 'set -euo pipefail' TAMAMEN KALDIRILDI.
+# GÜNCELLEME 6: Bekleme süresi, en üste 'WAIT_SECONDS' olarak ayarlanabilir bir değişken yapıldı.
+
+# (set -euo pipefail satırı bilerek kaldırıldı!)
 
 # --- Renk Kodları ---
 C_RESET='\033[0m'
@@ -13,6 +13,13 @@ C_GREEN='\033[0;32m'
 C_YELLOW='\033[0;33m'
 C_CYAN='\033[0;36m'
 C_WHITE='\033[1;37m'
+
+# --- Ayarlar ---
+# API istekleri arası bekleme süresi (saniye).
+# GitHub'in sizi rate-limit (engelleme) yapmaması için 1-5 saniye arası önerilir.
+# 0 yapmak çok hızlıdır ama IP/Token ban riski taşır.
+WAIT_SECONDS=1
+
 
 # --- Gereksinimler ---
 for cmd in git curl jq; do
@@ -26,7 +33,6 @@ done
 TOKEN_FILE="token.txt"
 TOKENS=()
 
-# token.txt dosyasından token'ları yükler
 load_tokens() {
   echo -e "${C_CYAN}Token dosyası okunuyor: $TOKEN_FILE${C_RESET}"
   TOKENS=() # Diziyi temizle
@@ -36,7 +42,6 @@ load_tokens() {
     return 1
   fi
   
-  # Dosyayı oku, yorumları (#) ve boş satırları atla
   while IFS= read -r line || [[ -n "$line" ]]; do
     if [[ ! "$line" =~ ^\s*# && -n "$line" ]]; then
       TOKENS+=("$line")
@@ -52,9 +57,8 @@ load_tokens() {
   return 0
 }
 
-# --- API Çağrı Fonksiyonları (Rate Limit için 5sn bekleme ile) ---
+# --- API Çağrı Fonksiyonları ---
 
-# GitHub API'ye PUT isteği (Star, Follow, Watch)
 api_put() {
   local token=$1
   local endpoint=$2
@@ -78,7 +82,6 @@ api_put() {
   fi
 }
 
-# GitHub API'ye DELETE isteği (Unstar, Unfollow)
 api_delete() {
   local token=$1
   local endpoint=$2
@@ -127,7 +130,6 @@ func_repo_copy() {
   IS_PRIVATE=${IS_PRIVATE_INPUT:-n}
   read -p "Repo konuları (virgülle ayırın, opsiyonel): " TOPICS
 
-  # URL normalleştirme
   local SRC_REPO
   if [[ "$SRC_INPUT" =~ github.com/ ]]; then
     SRC_REPO=$(echo "$SRC_INPUT" | sed -E 's#https?://(www\.)?github.com/##; s#\.git$##; s#/$##')
@@ -145,8 +147,6 @@ func_repo_copy() {
   echo "Token sahibi: ${C_GREEN}$USERNAME${C_RESET}"
 
   local TMPDIR
-  # Termux için /data/data/com.termux/files/home/
-  # Diğer Linux sistemleri için /tmp
   if [[ -d "/data/data/com.termux/files/home" ]]; then
     TMPDIR="$(mktemp -d /data/data/com.termux/files/home/tmp-import-XXXX)"
   else
@@ -251,7 +251,6 @@ func_repo_star() {
     echo -e "${C_RED}Hedef repo gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
   fi
   
-  # URL Normalleştirme
   if [[ "$TARGET_REPO" =~ github.com/ ]]; then
     echo -e "${C_YELLOW} -> URL algılandı, 'owner/repo' formatına çevriliyor...${C_RESET}"
     TARGET_REPO=$(echo "$TARGET_REPO" | sed -E 's#https?://(www\.)?github.com/##; s#\.git$##; s#/$##')
@@ -282,9 +281,12 @@ func_repo_star() {
       ((fail_count++))
     fi
     
+    # DÜZELTME: Ayarlanabilir bekleme süresi
     if [[ $i -lt $((count_to_star - 1)) ]]; then
-      echo "5 saniye bekleniyor..."
-      sleep 5
+      if [[ $WAIT_SECONDS -gt 0 ]]; then
+        echo "$WAIT_SECONDS saniye bekleniyor..."
+        sleep $WAIT_SECONDS
+      fi
     fi
   done
 
@@ -310,7 +312,6 @@ func_repo_unstar() {
     echo -e "${C_RED}Hedef repo gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
   fi
   
-  # URL Normalleştirme
   if [[ "$TARGET_REPO" =~ github.com/ ]]; then
     echo -e "${C_YELLOW} -> URL algılandı, 'owner/repo' formatına çevriliyor...${C_RESET}"
     TARGET_REPO=$(echo "$TARGET_REPO" | sed -E 's#https?://(www\.)?github.com/##; s#\.git$##; s#/$##')
@@ -341,9 +342,12 @@ func_repo_unstar() {
       ((fail_count++))
     fi
     
+    # DÜZELTME: Ayarlanabilir bekleme süresi
     if [[ $i -lt $((count_to_unstar - 1)) ]]; then
-      echo "5 saniye bekleniyor..."
-      sleep 5
+      if [[ $WAIT_SECONDS -gt 0 ]]; then
+        echo "$WAIT_SECONDS saniye bekleniyor..."
+        sleep $WAIT_SECONDS
+      fi
     fi
   done
 
@@ -369,7 +373,6 @@ func_user_follow() {
     echo -e "${C_RED}Kullanıcı adı gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
   fi
   
-  # URL Normalleştirme (Kullanıcı adı için)
   if [[ "$TARGET_USER" =~ github.com/ ]]; then
     echo -e "${C_YELLOW} -> URL algılandı, 'kullanıcı' formatına çevriliyor...${C_RESET}"
     TARGET_USER=$(echo "$TARGET_USER" | sed -E 's#https?://(www\.)?github.com/##' | cut -d'/' -f1)
@@ -400,9 +403,12 @@ func_user_follow() {
       ((fail_count++))
     fi
     
+    # DÜZELTME: Ayarlanabilir bekleme süresi
     if [[ $i -lt $((count_to_follow - 1)) ]]; then
-      echo "5 saniye bekleniyor..."
-      sleep 5
+      if [[ $WAIT_SECONDS -gt 0 ]]; then
+        echo "$WAIT_SECONDS saniye bekleniyor..."
+        sleep $WAIT_SECONDS
+      fi
     fi
   done
 
@@ -428,7 +434,6 @@ func_user_unfollow() {
     echo -e "${C_RED}Kullanıcı adı gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
   fi
   
-  # URL Normalleştirme
   if [[ "$TARGET_USER" =~ github.com/ ]]; then
     echo -e "${C_YELLOW} -> URL algılandı, 'kullanıcı' formatına çevriliyor...${C_RESET}"
     TARGET_USER=$(echo "$TARGET_USER" | sed -E 's#https?://(www\.)?github.com/##' | cut -d'/' -f1)
@@ -459,9 +464,12 @@ func_user_unfollow() {
       ((fail_count++))
     fi
     
+    # DÜZELTME: Ayarlanabilir bekleme süresi
     if [[ $i -lt $((count_to_unfollow - 1)) ]]; then
-      echo "5 saniye bekleniyor..."
-      sleep 5
+      if [[ $WAIT_SECONDS -gt 0 ]]; then
+        echo "$WAIT_SECONDS saniye bekleniyor..."
+        sleep $WAIT_SECONDS
+      fi
     fi
   done
 
@@ -487,7 +495,6 @@ func_repo_watch() {
     echo -e "${C_RED}Hedef repo gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
   fi
   
-  # URL Normalleştirme
   if [[ "$TARGET_REPO" =~ github.com/ ]]; then
     echo -e "${C_YELLOW} -> URL algılandı, 'owner/repo' formatına çevriliyor...${C_RESET}"
     TARGET_REPO=$(echo "$TARGET_REPO" | sed -E 's#https?://(www\.)?github.com/##; s#\.git$##; s#/$##')
@@ -520,9 +527,12 @@ func_repo_watch() {
       ((fail_count++))
     fi
     
+    # DÜZELTME: Ayarlanabilir bekleme süresi
     if [[ $i -lt $((count_to_watch - 1)) ]]; then
-      echo "5 saniye bekleniyor..."
-      sleep 5
+      if [[ $WAIT_SECONDS -gt 0 ]]; then
+        echo "$WAIT_SECONDS saniye bekleniyor..."
+        sleep $WAIT_SECONDS
+      fi
     fi
   done
 
@@ -542,6 +552,7 @@ main_menu() {
     echo -e "${C_WHITE}    GitHub Çok Amaçlı Araç Menüsü${C_RESET}"
     echo -e "${C_WHITE}=======================================${C_RESET}"
     echo -e "İşlemler ${C_CYAN}$TOKEN_FILE${C_RESET} dosyasındaki tokenlar ile yapılır."
+    echo -e "Bekleme süresi: ${C_YELLOW}$WAIT_SECONDS saniye${C_RESET}"
     echo
     echo -e " ${C_YELLOW}1.${C_RESET} Repo Kopyala (İçe Aktar)"
     echo -e " ${C_YELLOW}2.${C_RESET} Toplu Repo Star'la"
@@ -564,7 +575,7 @@ main_menu() {
       3)
         func_repo_unstar
         ;;
-      4)
+      4.0)
         func_user_follow
         ;;
       5)
