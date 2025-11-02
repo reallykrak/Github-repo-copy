@@ -2,6 +2,7 @@
 # github-tool.sh -- GitHub için çok amaçlı araç menüsü
 # Özellikler: Repo Kopyalama, Toplu Star/Unstar, Toplu Takip
 # GÜNCELLEME: URL normalleştirmesi eklendi (owner/repo formatını otomatik algılama)
+# GÜNCELLEME 2: Main_menu'deki syntax hatası düzeltildi.
 set -euo pipefail
 
 # --- Renk Kodları ---
@@ -243,7 +244,7 @@ func_repo_star() {
     echo -e "${C_RED}Hedef repo gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
   fi
   
-  # YENİ EKLENDİ: URL Normalleştirme
+  # URL Normalleştirme
   if [[ "$TARGET_REPO" =~ github.com/ ]]; then
     echo -e "${C_YELLOW} -> URL algılandı, 'owner/repo' formatına çevriliyor...${C_RESET}"
     TARGET_REPO=$(echo "$TARGET_REPO" | sed -E 's#https?://(www\.)?github.com/##; s#\.git$##; s#/$##')
@@ -302,7 +303,7 @@ func_repo_unstar() {
     echo -e "${C_RED}Hedef repo gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
   fi
   
-  # YENİ EKLENDİ: URL Normalleştirme
+  # URL Normalleştirme
   if [[ "$TARGET_REPO" =~ github.com/ ]]; then
     echo -e "${C_YELLOW} -> URL algılandı, 'owner/repo' formatına çevriliyor...${C_RESET}"
     TARGET_REPO=$(echo "$TARGET_REPO" | sed -E 's#https?://(www\.)?github.com/##; s#\.git$##; s#/$##')
@@ -360,7 +361,7 @@ func_user_follow() {
     echo -e "${C_RED}Kullanıcı adı gerekli. Menüye dönülüyor.${C_RESET}"; sleep 2; return
   fi
   
-  # YENİ EKLENDİ: URL Normalleştirme (Kullanıcı adı için)
+  # URL Normalleştirme (Kullanıcı adı için)
   if [[ "$TARGET_USER" =~ github.com/ ]]; then
     echo -e "${C_YELLOW} -> URL algılandı, 'kullanıcı' formatına çevriliyor...${C_RESET}"
     # Sadece /'dan sonraki ilk kısmı al (kullanıcı adı)
@@ -404,7 +405,7 @@ func_user_follow() {
 }
 
 # ===============================================
-# === ANA MENÜ ===
+# === ANA MENÜ (DÜZELTİLDİ) ===
 # ===============================================
 main_menu() {
   while true; do
@@ -417,8 +418,25 @@ main_menu() {
     echo -e " ${C_YELLOW}1.${C_RESET} Repo Kopyala (İçe Aktar)"
     echo -e " ${C_YELLOW}2.${C_RESET} Toplu Repo Star'la"
     echo -e " ${C_YELLOW}3.${C_RESET} Toplu Repo Un-Star'la"
-_follow
-        
+    echo -e " ${C_YELLOW}4.${C_RESET} Toplu Kullanıcı Takip Et (Ek Özellik)"
+    echo
+    echo -e " ${C_RED}q.${C_RESET} Çıkış"
+    echo
+    read -p "Seçiminiz [1-4, q]: " CHOICE
+
+    case $CHOICE in
+      1)
+        func_repo_copy
+        ;;
+      2)
+        func_repo_star
+        ;;
+      3)
+        func_repo_unstar
+        ;;
+      4)
+        func_user_follow
+        ;;
       q|Q)
         echo -e "${C_CYAN}Görüşmek üzere!${C_RESET}"
         exit 0
