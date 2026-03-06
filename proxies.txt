@@ -1,0 +1,18 @@
+# HTTP Proxy Listesi (proxyscrape.com'dan aldığın HTTP proxyleri buraya yaz)
+# Format: proxy "IP" / port "PORT"
+# ---------------------------------------------------
+
+proxy "216.26.234.228"
+port "3129"
+
+proxy "104.207.47.225"
+port "3129"
+
+proxy "216.26.225.98"
+port "3129"
+
+proxy "209.50.167.29"
+port "3129"
+
+proxy "65.111.22.252"
+port "3129"
